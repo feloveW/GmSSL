@@ -1,4 +1,4 @@
-/*
+﻿/*
  *  Copyright 2014-2024 The GmSSL Project. All Rights Reserved.
  *
  *  Licensed under the Apache License, Version 2.0 (the License); you may
@@ -209,7 +209,7 @@ SM2Cipher ::= SEQUENCE {
 	CipherText	OCTET STRING }
 */
 #define SM2_MIN_PLAINTEXT_SIZE	1 // re-compute SM2_MIN_CIPHERTEXT_SIZE when modify
-#define SM2_MAX_PLAINTEXT_SIZE	255 // re-compute SM2_MAX_CIPHERTEXT_SIZE when modify
+#define SM2_MAX_PLAINTEXT_SIZE	65535 // re-compute SM2_MAX_CIPHERTEXT_SIZE when modify
 
 typedef struct {
 	uint8_t x[32];
@@ -219,7 +219,7 @@ typedef struct {
 typedef struct {
 	SM2_POINT point;
 	uint8_t hash[32];
-	uint8_t ciphertext_size;
+	uint32_t ciphertext_size;
 	uint8_t ciphertext[SM2_MAX_PLAINTEXT_SIZE];
 } SM2_CIPHERTEXT;
 
@@ -230,7 +230,7 @@ int sm2_do_encrypt(const SM2_KEY *key, const uint8_t *in, size_t inlen, SM2_CIPH
 int sm2_do_decrypt(const SM2_KEY *key, const SM2_CIPHERTEXT *in, uint8_t *out, size_t *outlen);
 
 #define SM2_MIN_CIPHERTEXT_SIZE	 45 // depends on SM2_MIN_PLAINTEXT_SIZE
-#define SM2_MAX_CIPHERTEXT_SIZE	366 // depends on SM2_MAX_PLAINTEXT_SIZE
+#define SM2_MAX_CIPHERTEXT_SIZE	SM2_MAX_PLAINTEXT_SIZE+256 // depends on SM2_MAX_PLAINTEXT_SIZE
 int sm2_ciphertext_to_der(const SM2_CIPHERTEXT *c, uint8_t **out, size_t *outlen);
 int sm2_ciphertext_from_der(SM2_CIPHERTEXT *c, const uint8_t **in, size_t *inlen);
 int sm2_ciphertext_print(FILE *fp, int fmt, int ind, const char *label, const uint8_t *a, size_t alen);

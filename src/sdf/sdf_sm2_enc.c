@@ -611,7 +611,7 @@ int sm2_ciphertext_from_der(SM2_CIPHERTEXT *C, const uint8_t **in, size_t *inlen
 	memcpy(C->point.y + 32 - ylen, y, ylen);
 	memcpy(C->hash, hash, hashlen);
 	memcpy(C->ciphertext, c, clen);
-	C->ciphertext_size = (uint8_t)clen;
+	C->ciphertext_size = (uint32_t)clen;
 	return 1;
 }
 

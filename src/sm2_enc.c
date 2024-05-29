@@ -164,7 +164,7 @@ int sm2_do_encrypt_ex(const SM2_KEY *key, const SM2_ENC_PRE_COMP *pre_comp,
 
 	// output C2 = M xor t
 	gmssl_memxor(out->ciphertext, out->ciphertext, in, inlen);
-	out->ciphertext_size = (uint8_t)inlen;
+	out->ciphertext_size = (uint32_t)inlen;
 
 	// output C3 = Hash(x2 || m || y2)
 	sm3_init(&sm3_ctx);
@@ -219,7 +219,7 @@ retry:
 
 	// output C2 = M xor t
 	gmssl_memxor(out->ciphertext, out->ciphertext, in, inlen);
-	out->ciphertext_size = (uint8_t)inlen;
+	out->ciphertext_size = (uint32_t)inlen;
 
 	// output C3 = Hash(x2 || m || y2)
 	sm3_init(&sm3_ctx);
@@ -300,7 +300,7 @@ retry:
 
 	// output C2 = M xor t
 	gmssl_memxor(out->ciphertext, out->ciphertext, in, inlen);
-	out->ciphertext_size = (uint8_t)inlen;
+	out->ciphertext_size = (uint32_t)inlen;
 
 	// output C3 = Hash(x2 || m || y2)
 	sm3_init(&sm3_ctx);
@@ -431,13 +431,13 @@ int sm2_ciphertext_from_der(SM2_CIPHERTEXT *C, const uint8_t **in, size_t *inlen
 	memcpy(C->point.y + 32 - ylen, y, ylen);
 	memcpy(C->hash, hash, hashlen);
 	memcpy(C->ciphertext, c, clen);
-	C->ciphertext_size = (uint8_t)clen;
+	C->ciphertext_size = (uint32_t)clen;
 	return 1;
 }
 
 int sm2_ciphertext_print(FILE *fp, int fmt, int ind, const char *label, const uint8_t *a, size_t alen)
 {
-	uint8_t buf[512] = {0};
+	uint8_t buf[SM2_MAX_CIPHERTEXT_SIZE] = {0};
 	SM2_CIPHERTEXT *c = (SM2_CIPHERTEXT *)buf;
 
 	if (sm2_ciphertext_from_der(c, &a, &alen) != 1
