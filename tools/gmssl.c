@@ -66,7 +66,12 @@ extern int tls12_server_main(int argc, char **argv);
 extern int tls13_client_main(int argc, char **argv);
 extern int tls13_server_main(int argc, char **argv);
 #ifdef ENABLE_SDF
-extern int sdfutil_main(int argc, char **argv);
+extern int sdfinfo_main(int argc, char **argv);
+extern int sdfdigest_main(int argc, char **argv);
+extern int sdfexport_main(int argc, char **argv);
+extern int sdfsign_main(int argc, char **argv);
+extern int sdfencrypt_main(int argc, char **argv);
+extern int sdfdecrypt_main(int argc, char **argv);
 extern int sdftest_main(int argc, char **argv);
 #endif
 #ifdef ENABLE_SKF
@@ -126,7 +131,12 @@ static const char *options =
 	"  cmssign           Generate CMS SignedData\n"
 	"  cmsverify         Verify CMS SignedData\n"
 #ifdef ENABLE_SDF
-	"  sdfutil           SDF crypto device utility\n"
+	"  sdfinfo           Print SDF device info\n"
+	"  sdfdigest         Generate SM3 hash with SDF device\n"
+	"  sdfexport         Export SM2 signing public key from SDF device\n"
+	"  sdfsign           Generate SM2 signature with SDF internal private key\n"
+	"  sdfencrypt        SM2/SM4-CBC hybrid encryption with SDF device\n"
+	"  sdfdecrypt        SM2/SM4-CBC hybrid decryption with SDF device\n"
 	"  sdftest           Test vendor's SDF library and device\n"
 #endif
 #ifdef ENABLE_SKF
@@ -277,8 +287,18 @@ int main(int argc, char **argv)
 		} else if (!strcmp(*argv, "tls13_server")) {
 			return tls13_server_main(argc, argv);
 #ifdef ENABLE_SDF
-		} else if (!strcmp(*argv, "sdfutil")) {
-			return sdfutil_main(argc, argv);
+		} else if (!strcmp(*argv, "sdfinfo")) {
+			return sdfinfo_main(argc, argv);
+		} else if (!strcmp(*argv, "sdfdigest")) {
+			return sdfdigest_main(argc, argv);
+		} else if (!strcmp(*argv, "sdfexport")) {
+			return sdfexport_main(argc, argv);
+		} else if (!strcmp(*argv, "sdfsign")) {
+			return sdfsign_main(argc, argv);
+		} else if (!strcmp(*argv, "sdfencrypt")) {
+			return sdfencrypt_main(argc, argv);
+		} else if (!strcmp(*argv, "sdfdecrypt")) {
+			return sdfdecrypt_main(argc, argv);
 		} else if (!strcmp(*argv, "sdftest")) {
 			return sdftest_main(argc, argv);
 #endif

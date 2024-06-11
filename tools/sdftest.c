@@ -12,8 +12,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <time.h>
 #include <gmssl/hex.h>
 #include <gmssl/sm2.h>
+#include <gmssl/sm3.h>
 #include <gmssl/rand.h>
 #include <gmssl/error.h>
 #include "../src/sdf/sdf.h"
@@ -869,6 +871,7 @@ static int test_SDF_GenerateKeyWithIPK_ECC(int key, char *pass)
 	void *hDeviceHandle = NULL;
 	void *hSessionHandle = NULL;
 	void *hKeyHandle = NULL;
+	uint8_t iv[16] = {1};
 	unsigned int uiIPKIndex =(unsigned int)key;
 	unsigned char *pucPassword = (unsigned char *)pass;
 	unsigned int uiPwdLength = (unsigned int)strlen(pass);
@@ -905,6 +908,7 @@ static int test_SDF_GenerateKeyWithIPK_ECC(int key, char *pass)
 		return -1;
 	}
 
+	memcpy(ucIV, iv, 16);
 	ret = SDF_Encrypt(hSessionHandle, hKeyHandle, SGD_SM4_CBC, ucIV, ucData, uiDataLength, ucEncData, &uiEncDataLength);
 	if (ret != SDR_OK) {
 		fprintf(stderr, "Error: SDF_Encrypt return 0x%X\n", ret);
@@ -940,6 +944,7 @@ static int test_SDF_GenerateKeyWithIPK_ECC(int key, char *pass)
 		return -1;
 	}
 
+	memcpy(ucIV, iv, 16);
 	ret = SDF_Decrypt(hSessionHandle, hKeyHandle, SGD_SM4_CBC, ucIV, ucEncData, uiEncDataLength, ucDecData, &uiDecDataLength);
 	if (ret != SDR_OK) {
 		printf("Error: SDF_Encrypt returned 0x%X\n", ret);
@@ -1062,6 +1067,7 @@ static int test_SDF_Encrypt(int kek)
 	unsigned int uiKEKIndex = (unsigned int)kek;
 	unsigned char pucKey[64];
 	unsigned int uiKeyLength = (unsigned int)sizeof(pucKey);
+	unsigned char ucIV[16] = {1};
 	unsigned char pucIV[16];
 	unsigned char pucData[32];
 	unsigned int uiDataLength = sizeof(pucData);
@@ -1090,6 +1096,7 @@ static int test_SDF_Encrypt(int kek)
 	}
 
 	// encrypt and decrypt
+	memcpy(pucIV, ucIV, 16);
 	ret = SDF_Encrypt(hSessionHandle, hKeyHandle, SGD_SM4_CBC, pucIV, pucData, uiDataLength, pucEncData, &uiEncDataLength);
 	if (ret != SDR_OK) {
 		error_print_msg("SDF library: 0x%08X\n", ret);
@@ -1108,6 +1115,7 @@ static int test_SDF_Encrypt(int kek)
 	}
 	*/
 
+	memcpy(pucIV, ucIV, 16);
 	ret = SDF_Decrypt(hSessionHandle, hKeyHandle, SGD_SM4_CBC, pucIV, pucEncData, uiEncDataLength, pucDecData, &uiDecDataLength);
 	if (ret != SDR_OK) {
 		error_print_msg("SDF library: 0x%08X\n", ret);
@@ -1132,6 +1140,7 @@ static int test_SDF_Encrypt(int kek)
 	return 1;
 }
 
+// FIXME: correctness is not tested!			
 static int test_SDF_CalculateMAC(int kek)
 {
 	void *hDeviceHandle = NULL;
@@ -1143,7 +1152,7 @@ static int test_SDF_CalculateMAC(int kek)
 	unsigned char ucEncedKey[256];
 	unsigned int uiEncedKeyLength = (unsigned int)sizeof(ucEncedKey);
 	unsigned int uiMACAlgID = SGD_SM3;
-	unsigned char ucData[50] = {0}; // FIXME: put real test data			
+	unsigned char ucData[50]; // FIXME: put real test data			
 	unsigned int uiDataLength = (unsigned int)sizeof(ucData);
 	unsigned char ucMAC[32];
 	unsigned int uiMACLength = (unsigned int)sizeof(ucMAC);
@@ -1194,7 +1203,7 @@ static int test_SDF_InternalSign_ECC(int key, char *pass)
 	unsigned char *ucPassword = (unsigned char *)pass;
 	unsigned int uiPwdLength = (unsigned int)strlen(pass);
 	unsigned char ucData[32] = { 1,2,3,4 };
-	unsigned int uiDataLength = 32;
+	unsigned int uiDataLength = (unsigned int)sizeof(ucData);
 	ECCSignature eccSignature;
 	int ret;
 
@@ -1314,6 +1323,481 @@ static int test_SDF_InternalEncrypt_ECC(int key, char *pass)
 	return 1;
 }
 
+static int speed_SDF_Encrypt_SM4_CBC(int kek)
+{
+	void *hDeviceHandle = NULL;
+	void *hSessionHandle = NULL;
+	void *hKeyHandle = NULL;
+	unsigned int uiKeyBits = 128;
+	unsigned int uiKEKIndex = (unsigned int)kek;
+	unsigned char ucWrappedKey[64];
+	unsigned int uiWrappedKeyLength = (unsigned int)sizeof(ucWrappedKey);
+	unsigned char ucIV[16] = {0};
+	unsigned char ucData[4096] = {0};
+	unsigned int uiLength;
+	int ret;
+	clock_t begin, end;
+	double seconds;
+	size_t i;
+
+	ret = SDF_OpenDevice(&hDeviceHandle);
+	if (ret != SDR_OK) {
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_OpenSession(hDeviceHandle, &hSessionHandle);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_GenerateKeyWithKEK(hSessionHandle, uiKeyBits, SGD_SM4_CBC, uiKEKIndex, ucWrappedKey, &uiWrappedKeyLength, &hKeyHandle);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseSession(hSessionHandle);
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+
+	begin = clock();
+	for (i = 0; i < 16; i++) {
+		ret = SDF_Encrypt(hSessionHandle, hKeyHandle, SGD_SM4_CBC, ucIV, ucData, sizeof(ucData), ucData, &uiLength);
+		if (ret != SDR_OK) {
+			(void)SDF_DestroyKey(hSessionHandle, hKeyHandle);
+			(void)SDF_CloseSession(hSessionHandle);
+			(void)SDF_CloseDevice(hDeviceHandle);
+			error_print();
+			return -1;
+		}
+	}
+	for (i = 0; i < 4096; i++) {
+		(void)SDF_Encrypt(hSessionHandle, hKeyHandle, SGD_SM4_CBC, ucIV, ucData, sizeof(ucData), ucData, &uiLength);
+	}
+	end = clock();
+	seconds = (double)(end - begin)/ CLOCKS_PER_SEC;
+
+	(void)SDF_DestroyKey(hSessionHandle, hKeyHandle);
+	(void)SDF_CloseSession(hSessionHandle);
+	(void)SDF_CloseDevice(hDeviceHandle);
+
+	printf("%s: %f MiB per second\n", __FUNCTION__, 16/seconds);
+	return 1;
+}
+
+static int speed_SDF_Decrypt_SM4_CBC(int kek)
+{
+	void *hDeviceHandle = NULL;
+	void *hSessionHandle = NULL;
+	void *hKeyHandle = NULL;
+	unsigned int uiKeyBits = 128;
+	unsigned int uiKEKIndex = (unsigned int)kek;
+	unsigned char ucWrappedKey[64];
+	unsigned int uiWrappedKeyLength = (unsigned int)sizeof(ucWrappedKey);
+	unsigned char ucIV[16] = {0};
+	unsigned char ucData[4096] = {0};
+	unsigned int uiLength;
+	clock_t begin, end;
+	double seconds;
+	int i, ret;
+
+	ret = SDF_OpenDevice(&hDeviceHandle);
+	if (ret != SDR_OK) {
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_OpenSession(hDeviceHandle, &hSessionHandle);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_GenerateKeyWithKEK(hSessionHandle, uiKeyBits, SGD_SM4_CBC, uiKEKIndex, ucWrappedKey, &uiWrappedKeyLength, &hKeyHandle);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseSession(hSessionHandle);
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+
+	begin = clock();
+	for (i = 0; i < 16; i++) {
+		ret = SDF_Decrypt(hSessionHandle, hKeyHandle, SGD_SM4_CBC, ucIV, ucData, sizeof(ucData), ucData, &uiLength);
+		if (ret != SDR_OK) {
+			(void)SDF_DestroyKey(hSessionHandle, hKeyHandle);
+			(void)SDF_CloseSession(hSessionHandle);
+			(void)SDF_CloseDevice(hDeviceHandle);
+			error_print();
+			return -1;
+		}
+	}
+	for (i = 16; i < 4096; i++) {
+		(void)SDF_Decrypt(hSessionHandle, hKeyHandle, SGD_SM4_CBC, ucIV, ucData, sizeof(ucData), ucData, &uiLength);
+	}
+	end = clock();
+	seconds = (double)(end - begin)/ CLOCKS_PER_SEC;
+
+	(void)SDF_DestroyKey(hSessionHandle, hKeyHandle);
+	(void)SDF_CloseSession(hSessionHandle);
+	(void)SDF_CloseDevice(hDeviceHandle);
+
+	printf("%s: %f MiB per second\n", __FUNCTION__, 16/seconds);
+	return 1;
+}
+
+static int speed_SDF_Hash(void)
+{
+	void *hDeviceHandle = NULL;
+	void *hSessionHandle = NULL;
+	unsigned char ucData[4096] = {0};
+	unsigned int uiDataLength = (unsigned int)sizeof(ucData);
+	unsigned char ucHash[32];
+	unsigned int uiHashLength;
+	clock_t begin, end;
+	double seconds;
+	int i, ret;
+
+	ret = SDF_OpenDevice(&hDeviceHandle);
+	if (ret != SDR_OK) {
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_OpenSession(hDeviceHandle, &hSessionHandle);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+
+	begin = clock();
+	ret = SDF_HashInit(hSessionHandle, SGD_SM3, NULL, NULL, 0);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseSession(hSessionHandle);
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+	for (i = 0; i < 16; i++) {
+		ret = SDF_HashUpdate(hSessionHandle, ucData, uiDataLength);
+		if (ret != SDR_OK) {
+			(void)SDF_CloseSession(hSessionHandle);
+			(void)SDF_CloseDevice(hDeviceHandle);
+			error_print();
+			return -1;
+		}
+	}
+	for (i = 16; i < 4096; i++) {
+		(void)SDF_HashUpdate(hSessionHandle, ucData, uiDataLength);
+	}
+	end = clock();
+	seconds = (double)(end - begin)/ CLOCKS_PER_SEC;
+
+	(void)SDF_HashFinal(hSessionHandle, ucHash, &uiHashLength);
+	(void)SDF_CloseSession(hSessionHandle);
+	(void)SDF_CloseDevice(hDeviceHandle);
+
+	printf("%s: %f MiB per second\n", __FUNCTION__, 16/seconds);
+	return 1;
+}
+
+static int speed_SDF_GenerateKeyPair_ECC(void)
+{
+	void *hDeviceHandle = NULL;
+	void *hSessionHandle = NULL;
+	ECCrefPublicKey eccPublicKey;
+	ECCrefPrivateKey eccPrivateKey;
+	clock_t begin, end;
+	double seconds;
+	int i, ret;
+
+	ret = SDF_OpenDevice(&hDeviceHandle);
+	if (ret != SDR_OK) {
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_OpenSession(hDeviceHandle, &hSessionHandle);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+
+	begin = clock();
+	for (i = 0; i < 16; i++) {
+		ret = SDF_GenerateKeyPair_ECC(hSessionHandle, SGD_SM2_1, 256, &eccPublicKey, &eccPrivateKey);
+		if (ret != SDR_OK) {
+			(void)SDF_CloseSession(hSessionHandle);
+			(void)SDF_CloseDevice(hDeviceHandle);
+			error_print();
+			return -1;
+		}
+	}
+	for (i = 0; i < 4096; i++) {
+		(void)SDF_GenerateKeyPair_ECC(hSessionHandle, SGD_SM2_1, 256, &eccPublicKey, &eccPrivateKey);
+	}
+	end = clock();
+	seconds = (double)(end - begin)/ CLOCKS_PER_SEC;
+
+	(void)SDF_CloseSession(hSessionHandle);
+	(void)SDF_CloseDevice(hDeviceHandle);
+
+	printf("%s: %f keypairs generated per second\n", __FUNCTION__, 4096/seconds);
+	return 1;
+}
+
+// XXX: speed of `SDF_InternalSign_ECC` should be compared with `sm2_do_sign`
+static int speed_SDF_InternalSign_ECC(int key, char *pass)
+{
+	void *hDeviceHandle = NULL;
+	void *hSessionHandle = NULL;
+	unsigned int uiIPKIndex = (unsigned int)key;
+	unsigned char *ucPassword = (unsigned char *)pass;
+	unsigned int uiPwdLength = (unsigned int)strlen(pass);
+	unsigned char ucData[SM3_DIGEST_SIZE] = {1}; // XXX: `SDF_InternalSign_ECC` can only handle 32 bytes digest
+	unsigned int uiDataLength = (unsigned int)sizeof(ucData);
+	ECCSignature eccSignature;
+	clock_t begin, end;
+	double seconds;
+	int i, ret;
+
+	ret = SDF_OpenDevice(&hDeviceHandle);
+	if (ret != SDR_OK) {
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_OpenSession(hDeviceHandle, &hSessionHandle);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_GetPrivateKeyAccessRight(hSessionHandle, uiIPKIndex, ucPassword, uiPwdLength);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseSession(hSessionHandle);
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+
+	begin = clock();
+	for (i = 0; i < 16; i++) {
+		ret = SDF_InternalSign_ECC(hSessionHandle, uiIPKIndex, ucData, uiDataLength, &eccSignature);
+		if (ret != SDR_OK) {
+			(void)SDF_ReleasePrivateKeyAccessRight(hSessionHandle, uiIPKIndex);
+			(void)SDF_CloseSession(hSessionHandle);
+			(void)SDF_CloseDevice(hDeviceHandle);
+			error_print();
+			return -1;
+		}
+	}
+	for (i = 16; i < 4096; i++) {
+		(void)SDF_InternalSign_ECC(hSessionHandle, uiIPKIndex, ucData, uiDataLength, &eccSignature);
+	}
+	end = clock();
+	seconds = (double)(end - begin)/ CLOCKS_PER_SEC;
+
+	(void)SDF_ReleasePrivateKeyAccessRight(hSessionHandle, uiIPKIndex);
+	(void)SDF_CloseSession(hSessionHandle);
+	(void)SDF_CloseDevice(hDeviceHandle);
+
+	printf("%s: %f signs per second\n", __FUNCTION__, 4096/seconds);
+	return 1;
+}
+
+// XXX: speed of `SDF_InternalVerify_ECC` should be compared with `sm2_do_verify`
+static int speed_SDF_InternalVerify_ECC(int key, char *pass)
+{
+	void *hDeviceHandle = NULL;
+	void *hSessionHandle = NULL;
+	unsigned int uiIPKIndex = (unsigned int)key;
+	unsigned char *ucPassword = (unsigned char *)pass;
+	unsigned int uiPwdLength = (unsigned int)strlen(pass);
+	unsigned char ucData[32] = {1}; // XXX: `SDF_InternalVerify_ECC` can only handle 32 bytes digest
+	unsigned int uiDataLength = (unsigned int)sizeof(ucData);
+	ECCSignature eccSignature;
+	clock_t begin, end;
+	double seconds;
+	int i, ret;
+
+	ret = SDF_OpenDevice(&hDeviceHandle);
+	if (ret != SDR_OK) {
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_OpenSession(hDeviceHandle, &hSessionHandle);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_GetPrivateKeyAccessRight(hSessionHandle, uiIPKIndex, ucPassword, uiPwdLength);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseSession(hSessionHandle);
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+	ret = SDF_InternalSign_ECC(hSessionHandle, uiIPKIndex, ucData, uiDataLength, &eccSignature);
+	if (ret != SDR_OK) {
+		(void)SDF_ReleasePrivateKeyAccessRight(hSessionHandle, uiIPKIndex);
+		(void)SDF_CloseSession(hSessionHandle);
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+	(void)SDF_ReleasePrivateKeyAccessRight(hSessionHandle, uiIPKIndex);
+
+	begin = clock();
+	for (i = 0; i < 16; i++) {
+		ret = SDF_InternalVerify_ECC(hSessionHandle, uiIPKIndex, ucData, uiDataLength, &eccSignature);
+		if (ret != SDR_OK) {
+			(void)SDF_CloseSession(hSessionHandle);
+			(void)SDF_CloseDevice(hDeviceHandle);
+			error_print();
+			return -1;
+		}
+	}
+	for (i = 16; i < 4096; i++) {
+		(void)SDF_InternalVerify_ECC(hSessionHandle, uiIPKIndex, ucData, uiDataLength, &eccSignature);
+	}
+	end = clock();
+	seconds = (double)(end - begin)/ CLOCKS_PER_SEC;
+
+	(void)SDF_CloseSession(hSessionHandle);
+	(void)SDF_CloseDevice(hDeviceHandle);
+
+	printf("%s: %f verifications per second\n", __FUNCTION__, 4096/seconds);
+	return 1;
+}
+
+static int speed_SDF_InternalEncrypt_ECC(int key)
+{
+	void *hDeviceHandle = NULL;
+	void *hSessionHandle = NULL;
+	unsigned int uiIPKIndex = (unsigned int)key;
+	unsigned char ucData[32] = {1}; // same as sm2_enctest.c
+	unsigned int uiDataLength = (unsigned int)sizeof(ucData);
+	ECCCipher eccCipher;
+	unsigned char ucDecData[256];
+	unsigned int uiDecDataLength;
+	clock_t begin, end;
+	double seconds;
+	int i, ret;
+
+	ret = SDF_OpenDevice(&hDeviceHandle);
+	if (ret != SDR_OK) {
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_OpenSession(hDeviceHandle, &hSessionHandle);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+
+	begin = clock();
+	for (i = 0; i < 16; i++) {
+		ret = SDF_InternalEncrypt_ECC(hSessionHandle, uiIPKIndex, SGD_SM2_3, ucData, uiDataLength, &eccCipher);
+		if (ret != SDR_OK) {
+			(void)SDF_CloseSession(hSessionHandle);
+			(void)SDF_CloseDevice(hDeviceHandle);
+			error_print();
+			return -1;
+		}
+	}
+	for (i = 16; i < 4096; i++) {
+		(void)SDF_InternalEncrypt_ECC(hSessionHandle, uiIPKIndex, SGD_SM2_3, ucData, uiDataLength, &eccCipher);
+	}
+	end = clock();
+	seconds = (double)(end - begin)/ CLOCKS_PER_SEC;
+
+	(void)SDF_CloseSession(hSessionHandle);
+	(void)SDF_CloseDevice(hDeviceHandle);
+
+	printf("%s: %f encryptions per second\n", __FUNCTION__, 4096/seconds);
+	return 1;
+}
+
+static int speed_SDF_InternalDecrypt_ECC(int key, char *pass)
+{
+	void *hDeviceHandle = NULL;
+	void *hSessionHandle = NULL;
+	unsigned int uiIPKIndex = (unsigned int)key;
+	unsigned char *ucPassword = (unsigned char *)pass;
+	unsigned int uiPwdLength = (unsigned int)strlen(pass);
+	unsigned char ucData[32] = {1}; // same as sm2_enctest.c
+	unsigned int uiDataLength = (unsigned int)sizeof(ucData);
+	ECCCipher eccCipher;
+	unsigned char ucDecData[256];
+	unsigned int uiDecDataLength;
+	clock_t begin, end;
+	double seconds;
+	int i, ret;
+
+	ret = SDF_OpenDevice(&hDeviceHandle);
+	if (ret != SDR_OK) {
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_OpenSession(hDeviceHandle, &hSessionHandle);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_InternalEncrypt_ECC(hSessionHandle, uiIPKIndex, SGD_SM2_3, ucData, uiDataLength, &eccCipher);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseSession(hSessionHandle);
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+
+	ret = SDF_GetPrivateKeyAccessRight(hSessionHandle, uiIPKIndex, ucPassword, uiPwdLength);
+	if (ret != SDR_OK) {
+		(void)SDF_CloseSession(hSessionHandle);
+		(void)SDF_CloseDevice(hDeviceHandle);
+		error_print();
+		return -1;
+	}
+
+
+	begin = clock();
+	for (i = 0; i < 16; i++) {
+		ret = SDF_InternalDecrypt_ECC(hSessionHandle, uiIPKIndex, SGD_SM2_3, &eccCipher, ucDecData, &uiDecDataLength);
+		if (ret != SDR_OK) {
+			(void)SDF_CloseSession(hSessionHandle);
+			(void)SDF_CloseDevice(hDeviceHandle);
+			error_print();
+			return -1;
+		}
+	}
+	for (i = 16; i < 4096; i++) {
+		(void)SDF_InternalDecrypt_ECC(hSessionHandle, uiIPKIndex, SGD_SM2_3, &eccCipher, ucDecData, &uiDecDataLength);
+	}
+	end = clock();
+	seconds = (double)(end - begin)/ CLOCKS_PER_SEC;
+
+	(void)SDF_CloseSession(hSessionHandle);
+	(void)SDF_CloseDevice(hDeviceHandle);
+
+	printf("%s: %f decryptions per second\n", __FUNCTION__, 4096/seconds);
+	return 1;
+}
+
 int sdftest_main(int argc, char **argv)
 {
 	int ret = 1;
@@ -1399,6 +1883,17 @@ bad:
 	if (test_SDF_ExternalEncrypt_ECC() != 1) goto err; //FIXME: test this before any ECCCipher used
 	if (test_SDF_InternalSign_ECC(key, pass) != 1) goto err;
 	if (test_SDF_InternalEncrypt_ECC(key, pass) != 1) goto err;
+
+#if ENABLE_TEST_SPEED
+	if (speed_SDF_Hash() != 1) goto err;
+	if (speed_SDF_Encrypt_SM4_CBC(kek) != 1) goto err;
+	if (speed_SDF_Decrypt_SM4_CBC(kek) != 1) goto err;
+	if (speed_SDF_GenerateKeyPair_ECC() != 1) goto err;
+	if (speed_SDF_InternalSign_ECC(key, pass) != 1) goto err;
+	if (speed_SDF_InternalVerify_ECC(key, pass) != 1) goto err;
+	if (speed_SDF_InternalEncrypt_ECC(key) != 1) goto err;
+	if (speed_SDF_InternalDecrypt_ECC(key, pass) != 1) goto err;
+#endif
 
 	printf("%s all tests passed\n", __FILE__);
 	return 0;

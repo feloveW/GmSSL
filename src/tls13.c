@@ -29,16 +29,6 @@
 static const int tls13_ciphers[] = { TLS_cipher_sm4_gcm_sm3 };
 static size_t tls13_ciphers_count = sizeof(tls13_ciphers)/sizeof(int);
 
-/*
-int tls13_record_print(FILE *fp, const uint8_t *record,  size_t recordlen, int format, int indent)
-{
-	// 目前只支持TLCP的ECC公钥加密套件，因此不论用哪个套件解析都是一样的
-	// 如果未来支持ECDHE套件，可以将函数改为宏，直接传入 (conn->cipher_suite << 8)
-	format |= tls13_ciphers[0] << 8;
-	return tls_record_print(fp, record, recordlen, format, indent);
-}
-*/
-
 static int tls13_client_hello_exts[] = {
 	TLS_extension_supported_versions,
 	TLS_extension_padding,
@@ -201,13 +191,11 @@ int tls13_gcm_decrypt(const BLOCK_CIPHER_KEY *key, const uint8_t iv[12],
 	return 1;
 }
 
-// 这个函数是不对的，在我们的一些情况下，加密的时候并不会组成完整的数据
+// TODO: check this func again				
 int tls13_record_encrypt(const BLOCK_CIPHER_KEY *key, const uint8_t iv[12],
 	const uint8_t seq_num[8], const uint8_t *record, size_t recordlen, size_t padding_len,
 	uint8_t *enced_record, size_t *enced_recordlen)
 {
-	// 被加密的是握手消息或者是应用层数据
-
 	if (tls13_gcm_encrypt(key, iv,
 		seq_num, record[0], record + 5, recordlen - 5, padding_len,
 		enced_record + 5, enced_recordlen) != 1) {
@@ -215,7 +203,7 @@ int tls13_record_encrypt(const BLOCK_CIPHER_KEY *key, const uint8_t iv[12],
 		return -1;
 	}
 
-	enced_record[0] = TLS_record_application_data; // 显然这个不太对啊
+	enced_record[0] = TLS_record_application_data; // FIXME, maybe other type		
 	enced_record[1] = 0x03; //TLS_protocol_tls12_major;
 	enced_record[2] = 0x03; //TLS_protocol_tls12_minor;
 	enced_record[3] = (uint8_t)((*enced_recordlen) >> 8);
@@ -254,7 +242,7 @@ int tls13_send(TLS_CONNECT *conn, const uint8_t *data, size_t datalen, size_t *s
 	uint8_t *seq_num;
 	uint8_t *record = conn->record;
 	size_t recordlen;
-	size_t padding_len = 0; //FIXME: 在conn中设置是否加随机填充，及设置该值
+	size_t padding_len = 0; //FIXME: add random padding to conn			
 
 	tls_trace("send {ApplicationData}\n");
 
@@ -368,7 +356,7 @@ int tls13_do_recv(TLS_CONNECT *conn)
 		return ret;
 	}
 	tls_record_trace(stderr, record, recordlen, 0, 0);
-	// TODO: 是否需要检查record_type?  record[0] != TLS_record_application_data		
+	// TODO: do we need to check record_type?  record[0] != TLS_record_application_data		
 
 	if (tls13_gcm_decrypt(key, iv,
 		seq_num, record + 5, recordlen - 5,
@@ -665,8 +653,8 @@ int tls13_process_client_hello_exts(const uint8_t *exts, size_t extslen,
 
 		switch (ext_type) {
 		/*
-		// tls13_process_client_hello_exts 的接口需要处理，部分输出要输出到server_exts中			
-		case TLS_extension_supported_groups: // 这个应该放在EE里面
+		// tls13_process_client_hello_exts API should be fixed, output some exts to server_exts中			
+		case TLS_extension_supported_groups: // should be in EE
 			if (tls_process_client_supported_groups(ext_data, ext_datalen, NULL, &len) != 1
 				|| len > server_exts_maxlen) {
 				error_print();
@@ -674,7 +662,7 @@ int tls13_process_client_hello_exts(const uint8_t *exts, size_t extslen,
 			}
 			tls_process_client_supported_groups(ext_data, ext_datalen, &server_exts, server_exts_len);
 			break;
-		case TLS_extension_signature_algorithms: // client单方面通知就可以了，服务器不需要响应
+		case TLS_extension_signature_algorithms: // client notify, server no need to response
 			if (tls_process_client_signature_algorithms(ext_data, ext_datalen, NULL, &len) != 1
 				|| len > server_exts_maxlen) {
 				error_print();
@@ -740,7 +728,7 @@ int tls_client_key_shares_from_bytes(SM2_Z256_POINT *sm2_point, const uint8_t **
 	return 1;
 }
 
-// 这个函数不是太正确，应该也是一个process
+// FIXME: should be a process function
 int tls13_server_hello_extensions_get(const uint8_t *exts, size_t extslen, SM2_Z256_POINT *sm2_point)
 {
 	uint16_t version;
@@ -771,7 +759,7 @@ int tls13_server_hello_extensions_get(const uint8_t *exts, size_t extslen, SM2_Z
 			}
 			break;
 		//default:
-			// FIXME: 还有几个扩展没有处理！
+			// FIXME: not all exts handled			
 			//error_print();
 			//return -1;
 		}
@@ -1612,10 +1600,12 @@ int tls13_do_connect(TLS_CONNECT *conn)
 		uint8_t client_write_iv[12]
 		uint8_t server_write_iv[12]
 	*/
-	sm2_do_ecdh(&client_ecdhe, &server_ecdhe_public, &server_ecdhe_public);
+	sm2_do_ecdh(&client_ecdhe, &server_ecdhe_public, &server_ecdhe_public);		
+	uint8_t share_point[64];							
+	sm2_z256_point_to_bytes(&server_ecdhe_public, share_point);			
 	/* [1]  */ tls13_hkdf_extract(digest, zeros, psk, early_secret);
 	/* [5]  */ tls13_derive_secret(early_secret, "derived", &null_dgst_ctx, handshake_secret);
-	/* [6]  */ tls13_hkdf_extract(digest, handshake_secret, (uint8_t *)&server_ecdhe_public, handshake_secret);
+	/* [6]  */ tls13_hkdf_extract(digest, handshake_secret, share_point, handshake_secret);
 	/* [7]  */ tls13_derive_secret(handshake_secret, "c hs traffic", &dgst_ctx, client_handshake_traffic_secret);
 	/* [8]  */ tls13_derive_secret(handshake_secret, "s hs traffic", &dgst_ctx, server_handshake_traffic_secret);
 	/* [9]  */ tls13_derive_secret(handshake_secret, "derived", &null_dgst_ctx, master_secret);
@@ -2093,10 +2083,13 @@ int tls13_do_accept(TLS_CONNECT *conn)
 	digest_update(&dgst_ctx, record + 5, recordlen - 5);
 
 
-	sm2_do_ecdh(&server_ecdhe, &client_ecdhe_public, &client_ecdhe_public);
+	sm2_do_ecdh(&server_ecdhe, &client_ecdhe_public, &client_ecdhe_public);				
+	uint8_t share_point[64];//FIXME: 应该重新考虑TLS中如何使用sm2_do_ecdh还是sm2_ecdh						
+	sm2_z256_point_to_bytes(&client_ecdhe_public, share_point);			
+
 	/* 1  */ tls13_hkdf_extract(digest, zeros, psk, early_secret);
 	/* 5  */ tls13_derive_secret(early_secret, "derived", &null_dgst_ctx, handshake_secret);
-	/* 6  */ tls13_hkdf_extract(digest, handshake_secret, (uint8_t *)&client_ecdhe_public, handshake_secret);
+	/* 6  */ tls13_hkdf_extract(digest, handshake_secret, share_point, handshake_secret);
 	/* 7  */ tls13_derive_secret(handshake_secret, "c hs traffic", &dgst_ctx, client_handshake_traffic_secret);
 	/* 8  */ tls13_derive_secret(handshake_secret, "s hs traffic", &dgst_ctx, server_handshake_traffic_secret);
 	/* 9  */ tls13_derive_secret(handshake_secret, "derived", &null_dgst_ctx, master_secret);
